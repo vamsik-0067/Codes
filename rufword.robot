@@ -1,3 +1,49 @@
+*** Settings ***
+Library   Collections
+Library   OperatingSystem
+Library   RequestsLibrary
+Library   String
+Library   SSHLibrary
+Library   Process
+Library   JSONLibrary
+Library   user_input.py
+Library    DateTime
+Library           SSHLibrary
+Library           String
+Library           Collections
+
+*** Test Cases ***
+QXDM Automation
+
+    Open Connection    192.168.203.139
+    Login      oranlab     Ranzure@123
+    
+    Execute Command     del C:\\Logs\\STOP_QXDM.txt
+
+    Put File    /home/oranautomation/automation/SWEEP_TESTCASES/qxdm_automation.py    C:/Logs/qxdm_automation.py
+    #Execute Command      python C:/Logs/qxdm_automation.py
+    Start Command     cmd /c start pythonw C:\\Logs\\qxdm_automation.py
+    Sleep     15sec
+    
+UE Attach
+    Open Connection   192.168.203.139
+    ${log} =       Login           oranlab    Ranzure@123
+    Log    ${log}
+    ${output} =    Execute Command     cd C:\\platform-tools-latest-windows\\platform-tools && adb shell cmd connectivity airplane-mode disable
+    Sleep     20sec
+    Log    ${output}
+    
+    ${output} =    Execute Command     cd C:\\platform-tools-latest-windows\\platform-tools && adb shell ip -f inet addr show rmnet_data0
+    Log    ${output}
+    #Sleep     120sec
+    ${line}=     Get Lines Containing string     ${output}    inet
+    ${ip}=     Fetch From Right     ${line}     inet
+    ${ip}=     Fetch From Left      ${ip}     /
+    ${ip}=     Strip String     ${ip}
+    
+    Log To Console     UE IP =${ip}
+    Set Global Variable     ${ip}
+    
 RSRP_SWEEP_THROUGHPUT_TEST
 
     # =====================================================
@@ -55,7 +101,7 @@ RSRP_SWEEP_THROUGHPUT_TEST
         Log    TARGET RSRP = ${TARGET_RSRP}
         Log    ==================================================
 
-        ${TARGET_FOUND}=    Set Variable    False
+        ${TARGET_FOUND}=    Set Variable    ${False}
 
         WHILE    '${TARGET_FOUND}' == 'False'
 
@@ -113,7 +159,7 @@ RSRP_SWEEP_THROUGHPUT_TEST
 
                 Log    TARGET RSRP ACHIEVED
 
-                ${TARGET_FOUND}=    Set Variable    True
+                ${TARGET_FOUND}=    Set Variable    ${True}
 
             ELSE
 
@@ -125,13 +171,13 @@ RSRP_SWEEP_THROUGHPUT_TEST
 
                     Log    Signal Strong -> Increasing Attenuation
 
-                    ${attenuation}=    Evaluate    ${attenuation} + 1
+                    ${attenuation}=    Evaluate    ${attenuation} + 5
 
                 ELSE
 
                     Log    Signal Weak -> Decreasing Attenuation
 
-                    ${attenuation}=    Evaluate    ${attenuation} - 1
+                    ${attenuation}=    Evaluate    ${attenuation} - 5
 
                 END
 
@@ -162,7 +208,7 @@ RSRP_SWEEP_THROUGHPUT_TEST
         Switch Connection    SERVER
 
         ${server_cmd}=    Set Variable
-        ...    cmd /c "cd C:\\platform-tools-latest-windows\\platform-tools && adb shell /data/local/tmp/iperf -s -i 1 -u -t 180 -B 192.168.205.10 -p 6322 -P 5 > C:\\Logs\\iperf_${TARGET_RSRP}_${attenuation}.txt"
+        ...    cmd /c "cd C:\\platform-tools-latest-windows\\platform-tools && adb shell /data/local/tmp/iperf -s -i 1 -u -t 180 -B 192.168.205.10 -p 6322 -P 5 > C:\\Logs\\iperf_${attenuation}.txt"
 
         Start Command    ${server_cmd}
 
@@ -177,7 +223,7 @@ RSRP_SWEEP_THROUGHPUT_TEST
         Switch Connection    CLIENT
 
         ${iperf_cmd}=    Set Variable
-        ...    iperf -c 192.168.205.10 -u -i 1 -l 1350 -b 360m -t 180 -p 6322 -B 192.168.205.2 -P 5
+        ...    iperf -c ${ip} -u -i 1 -l 1350 -b 360m -t 180 -p 6322 -B 192.168.205.2 -P 5
 
         Log    ${iperf_cmd}
 
@@ -202,3 +248,20 @@ RSRP_SWEEP_THROUGHPUT_TEST
     Log    ==================================================
      
 	
+    
+   
+UE Detach
+
+    Open Connection   192.168.203.139
+    ${log} =       Login           oranlab    Ranzure@123
+    Log    ${log}
+    ${output} =    Execute Command     cd C:\\platform-tools-latest-windows\\platform-tools && adb shell cmd connectivity airplane-mode enable
+    Log    ${output}
+    #Sleep     120sec
+    
+Stop QXDM Automation
+    
+    Open Connection    192.168.203.139
+    Login      oranlab     Ranzure@123
+    Execute Command     echo stop > C:\\Logs\\STOP_QXDM.txt
+    
