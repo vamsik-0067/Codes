@@ -1,69 +1,31 @@
 *** Settings ***
-Library   Collections
-Library   OperatingSystem
-Library   RequestsLibrary
-Library   String
-Library   SSHLibrary
-Library   Process
-Library   JSONLibrary
-Library   user_input.py
-Library    DateTime
-Library           SSHLibrary
-Library           String
-Library           Collections
+Library    SSHLibrary
+Library    String
+Library    Collections
 
 *** Test Cases ***
-QXDM Automation
+RSRP_SWEEP_TEST
 
-    Open Connection    192.168.203.139
-    Login      oranlab     Ranzure@123
-    
-    Execute Command     del C:\\Logs\\STOP_QXDM.txt
-
-    Put File    /home/oranautomation/automation/SWEEP_TESTCASES/qxdm_automation.py    C:/Logs/qxdm_automation.py
-    #Execute Command      python C:/Logs/qxdm_automation.py
-    Start Command     cmd /c start pythonw C:\\Logs\\qxdm_automation.py
-    Sleep     15sec
-    
-UE Attach
-    Open Connection   192.168.203.139
-    ${log} =       Login           oranlab    Ranzure@123
-    Log    ${log}
-    ${output} =    Execute Command     cd C:\\platform-tools-latest-windows\\platform-tools && adb shell cmd connectivity airplane-mode disable
-    Sleep     20sec
-    Log    ${output}
-    
-    ${output} =    Execute Command     cd C:\\platform-tools-latest-windows\\platform-tools && adb shell ip -f inet addr show rmnet_data0
-    Log    ${output}
-    #Sleep     120sec
-    ${line}=     Get Lines Containing string     ${output}    inet
-    ${ip}=     Fetch From Right     ${line}     inet
-    ${ip}=     Fetch From Left      ${ip}     /
-    ${ip}=     Strip String     ${ip}
-    
-    Log To Console     UE IP =${ip}
-    Set Global Variable     ${ip}
-    
-RSRP_SWEEP_THROUGHPUT_TEST
-
-    # =====================================================
-    # OPEN CONNECTIONS
-    # =====================================================
+    # -----------------------------------------
+    # CONNECT ATTENUATOR
+    # -----------------------------------------
 
     Open Connection    192.168.203.63    alias=ATT
     Login    oranautomation    oran
 
+    # -----------------------------------------
+    # CONNECT SERVER
+    # -----------------------------------------
+
     Open Connection    192.168.203.139    alias=SERVER
     Login    oranlab    Ranzure@123
 
-    Open Connection    192.168.203.127    alias=CLIENT
-    Login    root    mavenir
-
-    # =====================================================
+    # -----------------------------------------
     # TARGET RSRP LIST
-    # =====================================================
+    # -----------------------------------------
 
     @{TARGET_RSRP_LIST}=    Create List
+    ...    -60
     ...    -65
     ...    -70
     ...    -75
@@ -87,181 +49,218 @@ RSRP_SWEEP_THROUGHPUT_TEST
     ...    -75
     ...    -70
     ...    -65
+    ...    -60
 
-    ${attenuation}=    Set Variable    0
+    # -----------------------------------------
+    # INITIAL ATTENUATION
+    # -----------------------------------------
 
-    # =====================================================
-    # MAIN LOOP
-    # =====================================================
+    ${attenuation1}=    Set Variable    0
+    ${attenuation2}=    Set Variable    0
+
+    # -----------------------------------------
+    # MAIN TARGET LOOP
+    # -----------------------------------------
 
     FOR    ${TARGET_RSRP}    IN    @{TARGET_RSRP_LIST}
 
-        
-        Log    ==================================================
-        Log    TARGET RSRP = ${TARGET_RSRP}
-        Log    ==================================================
+        Log To Console
+        ...    =====================================
+
+        Log To Console
+        ...    TARGET RSRP = ${TARGET_RSRP}
+
+        Log To Console
+        ...    =====================================
 
         ${TARGET_FOUND}=    Set Variable    ${False}
 
-        WHILE    '${TARGET_FOUND}' == 'False'
+        # -------------------------------------
+        # TARGET SEARCH LOOP
+        # -------------------------------------
 
-            # =====================================================
-            # SET ATTENUATOR
-            # =====================================================
+        WHILE    not ${TARGET_FOUND}
+
+            # ---------------------------------
+            # APPLY ATTENUATION
+            # ---------------------------------
 
             Switch Connection    ATT
 
-            Log    Setting Attenuation = ${attenuation}
+            Log To Console
+            ...    CH1 = ${attenuation1}
+
+            Log To Console
+            ...    CH2 = ${attenuation2}
 
             ${cmd1}=    Set Variable
-            ...    curl -X GET "http://192.168.203.78/:01:CHAN:1:2:3:4:SETATT:${attenuation}"
+            ...    curl -X GET "http://192.168.203.78/:01:CHAN:1:2:3:4:SETATT:-${attenuation1}"
 
-            Write    ${cmd1}
+            Execute Command    ${cmd1}
 
             Sleep    1s
 
             ${cmd2}=    Set Variable
-            ...    curl -X GET "http://192.168.203.78/:02:CHAN:1:2:3:4:SETATT:${attenuation}"
+            ...    curl -X GET "http://192.168.203.78/:02:CHAN:1:2:3:4:SETATT:-${attenuation2}"
 
-            Write    ${cmd2}
+            Execute Command    ${cmd2}
 
             Sleep    5s
 
-            # =====================================================
-            # READ RSRP USING ADB
-            # =====================================================
+            # ---------------------------------
+            # DETACH UE
+            # ---------------------------------
 
             Switch Connection    SERVER
 
+            Execute Command
+            ...    cd C:\platform-tools-latest-windows\platform-tools && adb shell svc data disable
+
+            Log To Console    UE DETACHED
+
+            Sleep    5s
+
+            # ---------------------------------
+            # ATTACH UE
+            # ---------------------------------
+
+            Execute Command
+            ...    cd C:\platform-tools-latest-windows\platform-tools && adb shell svc data enable
+
+            Log To Console    UE ATTACHED
+
+            Sleep    10s
+
+            # ---------------------------------
+            # READ RSRP
+            # ---------------------------------
+
             ${output}=    Execute Command
-            ...    cd C:\\platform-tools-latest-windows\\platform-tools && adb shell dumpsys telephony.registry | findstr ssRsrp
+            ...    cd C:\platform-tools-latest-windows\platform-tools && adb shell dumpsys telephony.registry | findstr ssRsrp
 
-            Log    ${output}
+            Log To Console    ${output}
 
-            ${match}=     Get Regexp Matches    ${output}     rsrp=(-?\\d+)
-            Log     ${match}
-            
-            ${CURRENT_RSRP}=    Fetch From Right     ${match[0]}    =
-            ${CURRENT_RSRP}=     Convert To Integer     ${CURRENT_RSRP}
-            
-            Log     Current RSRp = ${CURRENT_RSRP}
+            ${match}=    Get Regexp Matches
+            ...    ${output}
+            ...    rsrp=(-?\d+)
 
-            # =====================================================
-            # CHECK TARGET WINDOW
-            # =====================================================
+            ${CURRENT_RSRP}=    Fetch From Right
+            ...    ${match}[0]
+            ...    =
 
-            ${LOWER_LIMIT}=    Evaluate    ${TARGET_RSRP} - 1
-            ${UPPER_LIMIT}=    Evaluate    ${TARGET_RSRP} + 1
+            ${CURRENT_RSRP}=    Convert To Integer
+            ...    ${CURRENT_RSRP}
 
-            Log    Target Window = ${LOWER_LIMIT} to ${UPPER_LIMIT}
+            Log To Console
+            ...    CURRENT RSRP = ${CURRENT_RSRP}
+
+            # ---------------------------------
+            # TARGET WINDOW
+            # ---------------------------------
+
+            ${LOWER_LIMIT}=    Evaluate
+            ...    ${TARGET_RSRP} - 1
+
+            ${UPPER_LIMIT}=    Evaluate
+            ...    ${TARGET_RSRP} + 1
+
+            # ---------------------------------
+            # TARGET ACHIEVED
+            # ---------------------------------
 
             IF    ${CURRENT_RSRP} >= ${LOWER_LIMIT} and ${CURRENT_RSRP} <= ${UPPER_LIMIT}
 
-                Log    TARGET RSRP ACHIEVED
+                Log To Console
+                ...    TARGET ACHIEVED
 
                 ${TARGET_FOUND}=    Set Variable    ${True}
 
             ELSE
 
-                # =====================================================
-                # ATTENUATION ADJUSTMENT
-                # =====================================================
+                # -----------------------------
+                # DIFFERENCE
+                # -----------------------------
 
-                IF    ${CURRENT_RSRP} > ${TARGET_RSRP}
+                ${DIFF}=    Evaluate
+                ...    abs(${CURRENT_RSRP} - ${TARGET_RSRP})
 
-                    Log    Signal Strong -> Increasing Attenuation
+                # -----------------------------
+                # STEP SIZE
+                # -----------------------------
 
-                    ${attenuation}=    Evaluate    ${attenuation} + 5
+                IF    ${DIFF} > 10
+
+                    ${STEP1}=    Set Variable    10
+                    ${STEP2}=    Set Variable    2
 
                 ELSE
 
-                    Log    Signal Weak -> Decreasing Attenuation
-
-                    ${attenuation}=    Evaluate    ${attenuation} - 5
+                    ${STEP1}=    Set Variable    5
+                    ${STEP2}=    Set Variable    1
 
                 END
 
-            END
+                # -----------------------------
+                # SIGNAL STRONG
+                # -----------------------------
 
-            # =====================================================
-            # SAFETY CHECK
-            # =====================================================
+                IF    ${CURRENT_RSRP} > ${TARGET_RSRP}
 
-            IF    ${attenuation} > 90
+                    Log To Console
+                    ...    SIGNAL TOO STRONG
 
-                Fail    Unable to achieve target RSRP
+                    ${attenuation1}=    Evaluate
+                    ...    ${attenuation1} + ${STEP1}
 
-            END
+                    ${attenuation2}=    Evaluate
+                    ...    ${attenuation2} + ${STEP2}
 
-            IF    ${attenuation} < 0
+                ELSE
 
-                ${attenuation}=    Set Variable    0
+                    # -------------------------
+                    # SIGNAL WEAK
+                    # -------------------------
+
+                    Log To Console
+                    ...    SIGNAL TOO WEAK
+
+                    ${attenuation1}=    Evaluate
+                    ...    ${attenuation1} - ${STEP1}
+
+                    ${attenuation2}=    Evaluate
+                    ...    ${attenuation2} - ${STEP2}
+
+                END
+
+                # -----------------------------
+                # NEGATIVE PROTECTION
+                # -----------------------------
+
+                IF    ${attenuation1} < 0
+                    ${attenuation1}=    Set Variable    0
+                END
+
+                IF    ${attenuation2} < 0
+                    ${attenuation2}=    Set Variable    0
+                END
+
+                Log To Console
+                ...    NEW CH1 = ${attenuation1}
+
+                Log To Console
+                ...    NEW CH2 = ${attenuation2}
 
             END
 
         END
 
-        # =====================================================
-        # START IPERF SERVER
-        # =====================================================
+        # -------------------------------------
+        # THROUGHPUT TEST PLACE
+        # -------------------------------------
 
-        Switch Connection    SERVER
-
-        ${server_cmd}=    Set Variable
-        ...    cmd /c "cd C:\\platform-tools-latest-windows\\platform-tools && adb shell /data/local/tmp/iperf -s -i 1 -u -t 180 -B 192.168.205.10 -p 6322 -P 5 > C:\\Logs\\iperf_${attenuation}.txt"
-
-        Start Command    ${server_cmd}
-
-        Log    iPerf Server Started
-
-        Sleep    5s
-
-        # =====================================================
-        # START IPERF CLIENT
-        # =====================================================
-
-        Switch Connection    CLIENT
-
-        ${iperf_cmd}=    Set Variable
-        ...    iperf -c ${ip} -u -i 1 -l 1350 -b 360m -t 180 -p 6322 -B 192.168.205.2 -P 5
-
-        Log    ${iperf_cmd}
-
-        Start Command    ${iperf_cmd}
-
-        ${iperf_output}=    Read Command Output    timeout=240s
-
-        Log    ${iperf_output}
-
-        
-        Log    ==================================================
-        Log    THROUGHPUT TEST COMPLETED
-        Log    ==================================================
-
-        Sleep    10s
+        Log To Console
+        ...    RUN THROUGHPUT TEST HERE
 
     END
 
-    
-    Log    ==================================================
-    Log    COMPLETE RSRP SWEEP FINISHED
-    Log    ==================================================
-     
-	
-    
-   
-UE Detach
-
-    Open Connection   192.168.203.139
-    ${log} =       Login           oranlab    Ranzure@123
-    Log    ${log}
-    ${output} =    Execute Command     cd C:\\platform-tools-latest-windows\\platform-tools && adb shell cmd connectivity airplane-mode enable
-    Log    ${output}
-    #Sleep     120sec
-    
-Stop QXDM Automation
-    
-    Open Connection    192.168.203.139
-    Login      oranlab     Ranzure@123
-    Execute Command     echo stop > C:\\Logs\\STOP_QXDM.txt
-    
+    Close All Connections
