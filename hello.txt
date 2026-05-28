@@ -1,0 +1,240 @@
+*** Test Cases ***
+RSRP_MATCH_SWEEP_TEST
+
+# -----------------------------------------
+# CONNECT ATTENUATOR
+# -----------------------------------------
+Open Connection    192.168.203.63    alias=ATT
+Login    oranautomation    oran
+# -----------------------------------------
+# CONNECT SERVER
+# -----------------------------------------
+Open Connection    192.168.203.139    alias=SERVER
+Login    oranlab    Ranzure@123
+# -----------------------------------------
+# INITIAL UE ATTACH
+# -----------------------------------------
+Switch Connection    SERVER
+Execute Command
+...    cd C:\\platform-tools-latest-windows\\platform-tools && adb shell cmd connectivity airplane-mode disable
+Log To Console
+...    UE ATTACHED
+Sleep    20s
+# -----------------------------------------
+# GET UE IP
+# -----------------------------------------
+${ip_output}=    Execute Command
+...    cd C:\\platform-tools-latest-windows\\platform-tools && adb shell ifconfig rmnet_data0
+${ip_match}=    Get Regexp Matches
+...    ${ip_output}
+...    inet\\s(\\d+\\.\\d+\\.\\d+\\.\\d+)
+${ip}=    Set Variable
+...    ${ip_match}[0]
+Log To Console
+...    UE IP = ${ip}
+# -----------------------------------------
+# START IPERF SERVER
+# -----------------------------------------
+Open Connection    192.168.203.139
+${log}=    Login    oranlab    Ranzure@123
+${server}=    Start Command
+...    cd C:\\platform-tools-latest-windows\\platform-tools && .\\adb shell "/data/local/tmp/iperf -s -i 1 -u -t 3600 -B ${ip} -p 6322 -P 5"
+Log To Console
+...    IPERF SERVER STARTED
+Sleep    5s
+# -----------------------------------------
+# START IPERF CLIENT
+# -----------------------------------------
+Open Connection    192.168.203.127
+${log}=    Login    root    mavenir
+Should Contain    ${log}    Last login
+${iperf}=    Start Command
+...    iperf -c ${ip} -u -i 1 -l 1350 -b 360m -t 3600 -p 6322 -B 192.168.205.2 -P 5 > iperf.txt
+Log To Console
+...    IPERF CLIENT STARTED
+Sleep    10s
+# -----------------------------------------
+# TARGET RSRP LIST
+# -----------------------------------------
+@{TARGET_RSRP_LIST}=    Create List
+...    -65
+...    -70
+...    -75
+...    -80
+...    -85
+...    -90
+...    -95
+...    -100
+...    -105
+...    -110
+...    -115
+...    -120
+...    -115
+...    -110
+...    -105
+...    -100
+...    -95
+...    -90
+...    -85
+...    -80
+...    -75
+...    -70
+...    -65
+# -----------------------------------------
+# INITIAL ATTENUATION
+# -----------------------------------------
+${attenuation1}=    Set Variable    0
+${attenuation2}=    Set Variable    0
+# -----------------------------------------
+# MAIN TARGET LOOP
+# -----------------------------------------
+FOR    ${TARGET_RSRP}    IN    @{TARGET_RSRP_LIST}
+    Log To Console
+    ...    =====================================
+    Log To Console
+    ...    TARGET LTE/NR RSRP = ${TARGET_RSRP}
+    Log To Console
+    ...    =====================================
+    ${TARGET_FOUND}=    Set Variable    ${False}
+    # -------------------------------------
+    # SEARCH LOOP
+    # -------------------------------------
+    WHILE    not ${TARGET_FOUND}
+        # ---------------------------------
+        # APPLY ATTENUATION
+        # ---------------------------------
+        Switch Connection    ATT
+        Log To Console
+        ...    CH1 = ${attenuation1}
+        Log To Console
+        ...    CH2 = ${attenuation2}
+        ${cmd1}=    Set Variable
+        ...    curl -X GET "http://192.168.203.78/:01:CHAN:1:2:3:4:SETATT:${attenuation1}"
+        Execute Command    ${cmd1}
+        Sleep    1s
+        ${cmd2}=    Set Variable
+        ...    curl -X GET "http://192.168.203.78/:02:CHAN:1:2:3:4:SETATT:${attenuation2}"
+        Execute Command    ${cmd2}
+        Sleep    5s
+        # ---------------------------------
+        # READ LTE + NR RSRP
+        # ---------------------------------
+        Switch Connection    SERVER
+        ${output}=    Execute Command
+        ...    cd C:\\platform-tools-latest-windows\\platform-tools && adb shell dumpsys telephony.registry | findstr /i "CellSignalStrengthNr rsrp="
+        Log To Console
+        ...    ${output}
+        # ---------------------------------
+        # LTE RSRP
+        # ---------------------------------
+        ${lte_match}=    Get Regexp Matches
+        ...    ${output}
+        ...    rsrp=(-?\\d+)
+        ${LTE_RSRP}=    Fetch From Right
+        ...    ${lte_match}[0]
+        ...    =
+        ${LTE_RSRP}=    Convert To Integer
+        ...    ${LTE_RSRP}
+        # ---------------------------------
+        # NR RSRP
+        # ---------------------------------
+        ${nr_match}=    Get Regexp Matches
+        ...    ${output}
+        ...    ssRsrp = (-?\\d+)
+        ${NR_RSRP}=    Set Variable
+        ...    ${nr_match}[0]
+        ${NR_RSRP}=    Convert To Integer
+        ...    ${NR_RSRP}
+        # ---------------------------------
+        # PRINT VALUES
+        # ---------------------------------
+        Log To Console
+        ...    LTE RSRP = ${LTE_RSRP}
+        Log To Console
+        ...    NR RSRP = ${NR_RSRP}
+        # ---------------------------------
+        # TARGET WINDOW ±2 dB
+        # ---------------------------------
+        ${LOWER_LIMIT}=    Evaluate
+        ...    ${TARGET_RSRP} - 2
+        ${UPPER_LIMIT}=    Evaluate
+        ...    ${TARGET_RSRP} + 2
+        # ---------------------------------
+        # CHECK LTE TARGET
+        # ---------------------------------
+        ${LTE_OK}=    Set Variable    ${False}
+        IF    ${LTE_RSRP} >= ${LOWER_LIMIT} and ${LTE_RSRP} <= ${UPPER_LIMIT}
+            ${LTE_OK}=    Set Variable    ${True}
+        END
+        # ---------------------------------
+        # CHECK NR TARGET
+        # ---------------------------------
+        ${NR_OK}=    Set Variable    ${False}
+        IF    ${NR_RSRP} >= ${LOWER_LIMIT} and ${NR_RSRP} <= ${UPPER_LIMIT}
+            ${NR_OK}=    Set Variable    ${True}
+        END
+        # ---------------------------------
+        # CHECK LTE vs NR DIFFERENCE
+        # ---------------------------------
+        ${DIFF}=    Evaluate
+        ...    abs(${LTE_RSRP} - ${NR_RSRP})
+        Log To Console
+        ...    LTE-NR DIFF = ${DIFF}
+        # ---------------------------------
+        # FINAL CONDITION
+        # ---------------------------------
+        IF    ${LTE_OK} and ${NR_OK} and ${DIFF} <= 2
+            Log To Console
+            ...    TARGET ACHIEVED
+            ${TARGET_FOUND}=    Set Variable
+            ...    ${True}
+        ELSE
+            # -----------------------------
+            # LTE STRONGER
+            # -----------------------------
+            IF    ${LTE_RSRP} > ${TARGET_RSRP}
+                Log To Console
+                ...    SIGNAL TOO STRONG
+                ${attenuation1}=    Evaluate
+                ...    ${attenuation1} + 1
+                ${attenuation2}=    Evaluate
+                ...    ${attenuation2} + 1
+            ELSE
+                # -------------------------
+                # SIGNAL TOO WEAK
+                # -------------------------
+                Log To Console
+                ...    SIGNAL TOO WEAK
+                ${attenuation1}=    Evaluate
+                ...    ${attenuation1} - 1
+                ${attenuation2}=    Evaluate
+                ...    ${attenuation2} - 1
+            END
+            # -----------------------------
+            # NEGATIVE PROTECTION
+            # -----------------------------
+            IF    ${attenuation1} < 0
+                ${attenuation1}=    Set Variable    0
+            END
+            IF    ${attenuation2} < 0
+                ${attenuation2}=    Set Variable    0
+            END
+            Log To Console
+            ...    NEW CH1 = ${attenuation1}
+            Log To Console
+            ...    NEW CH2 = ${attenuation2}
+        END
+        Sleep    5s
+    END
+    # -------------------------------------
+    # TARGET COMPLETED
+    # -------------------------------------
+    Log To Console
+    ...    TARGET ${TARGET_RSRP} COMPLETED
+    Sleep    10s
+END
+# -----------------------------------------
+# TEST COMPLETED
+# -----------------------------------------
+Log To Console
+...    LTE + NR RSRP SWEEP COMPLETED
