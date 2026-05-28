@@ -197,27 +197,30 @@ RSRP_SWEEP_TEST
             # READ RSRP
             # ---------------------------------
 
-            Switch Connection    SERVER
 
-            ${output}=    Execute Command
-            ...    cd C:\\platform-tools-latest-windows\\platform-tools && adb shell dumpsys telephony.registry | findstr ssRsrp
+				# ---------------------------------
+				# GET LIVE NR RSRP FROM QXDM
+				# ---------------------------------
+				
+				Switch Connection    SERVER
+				
+				Execute Command
+				...    python C:\\Logs\\hdf_to_txt.py
+				
+				Sleep    3s
+				
+				${CURRENT_RSRP}=    Execute Command
+				...    type C:\\Logs\\current_rsrp.txt
+				
+				${CURRENT_RSRP}=    Strip String
+				...    ${CURRENT_RSRP}
+				
+				${CURRENT_RSRP}=    Convert To Integer
+				...    ${CURRENT_RSRP}
+				
+				Log To Console
+				...    CURRENT NR RSRP = ${CURRENT_RSRP}
 
-            Log To Console
-            ...    ${output}
-
-            ${match}=    Get Regexp Matches
-            ...    ${output}
-            ...    rsrp=(-?\\d+)
-
-            ${CURRENT_RSRP}=    Fetch From Right
-            ...    ${match}[0]
-            ...    =
-
-            ${CURRENT_RSRP}=    Convert To Integer
-            ...    ${CURRENT_RSRP}
-
-            Log To Console
-            ...    CURRENT RSRP = ${CURRENT_RSRP}
 
             # ---------------------------------
             # TARGET WINDOW
