@@ -1,40 +1,73 @@
-import subprocess
 import os
+import sys
+import time
 
 # ---------------------------------------------------
-# INPUT HDF FILE
+# QXDM PATH
 # ---------------------------------------------------
-hdf_file = r"C:\Logs\your_file.hdf"   # <-- change this
+sys.path.append(r"C:\Program Files\Qualcomm\QXDM5\Support\python")
+
+import QxdmAutomationClient
 
 # ---------------------------------------------------
-# OUTPUT TXT FILE
+# FILE PATH
 # ---------------------------------------------------
-txt_file = hdf_file.replace(".hdf", "_throughput.txt")
+hdfFile = r"C:\Logs\your_file.hdf"   # <-- change this
 
-# ---------------------------------------------------
-# CHECK FILE EXISTS
-# ---------------------------------------------------
-if not os.path.exists(hdf_file):
+if not os.path.exists(hdfFile):
     print("HDF file not found!")
     exit()
 
-print("Processing file:", hdf_file)
+# ---------------------------------------------------
+# CREATE CLIENT
+# ---------------------------------------------------
+client = QxdmAutomationClient.QxdmAutomationClient("QXDMReader")
+manager = client.getQxdmAutomationManager()
 
 # ---------------------------------------------------
-# THROUGHPUT FILTER KEYWORDS
+# INIT
 # ---------------------------------------------------
-keywords = "throughput rate DL UL tx_rate rx_rate Transport_Block MAC"
+manager.InitializeService()
+manager.SetVisible(True)
 
 # ---------------------------------------------------
-# COMMAND
+# LOAD HDF FILE ✅ (KEY STEP)
 # ---------------------------------------------------
-cmd = f'h5dump "{hdf_file}" | findstr /i "{keywords}" > "{txt_file}"'
+print("Loading HDF file...")
+ret = manager.LoadItemStore(hdfFile)
+
+print("LoadItemStore:", ret)
+
+if not ret:
+    print("Failed to load HDF")
+    exit()
 
 # ---------------------------------------------------
-# EXECUTE
+# EXPORT DECODED LOGS
 # ---------------------------------------------------
-print("Extracting throughput logs...")
+txtFile = hdfFile.replace(".hdf", "_decoded.txt")
+
+print("Exporting decoded logs...")
+manager.ExportView(txtFile)
+
+print("Decoded file:", txtFile)
+
+# ---------------------------------------------------
+# FILTER THROUGHPUT LOGS
+# ---------------------------------------------------
+import subprocess
+
+filteredFile = txtFile.replace(".txt", "_throughput.txt")
+
+cmd = f'findstr /i "NR5GMAC ENL2DL tput Kbps avgPHY" "{txtFile}" > "{filteredFile}"'
+
 subprocess.call(cmd, shell=True)
 
-print("✅ Done!")
-print("Output file:", txt_file)
+print("✅ Throughput logs:", filteredFile)
+
+# ---------------------------------------------------
+# DONE
+# ---------------------------------------------------
+manager.Close()
+
+print("✅ Completed")
