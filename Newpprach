@@ -1,34 +1,170 @@
+import os
+import sys
+import time
+from datetime import datetime
 
- ---------------------------------
-# CHECK LTE TARGET
-# ---------------------------------
-${LTE_OK}=    Set Variable    ${False}
-IF    ${LTE_RSRP} >= ${LOWER_LIMIT} and ${LTE_RSRP} <= ${UPPER_LIMIT}
-    ${LTE_OK}=    Set Variable    ${True}
-END
+# ---------------------------------------------------
+# DELETE OLD STOP FILE
+# ---------------------------------------------------
 
-# ---------------------------------
-# FINAL CONDITION (LTE ONLY)
-# ---------------------------------
-IF    ${LTE_OK}
-    Log To Console
-    ...    TARGET ACHIEVED
-    ${TARGET_FOUND}=    Set Variable    ${True}
-ELSE
-    IF    ${LTE_RSRP} > ${TARGET_RSRP}
-        Log To Console
-        ...    SIGNAL TOO STRONG
-        ${attenuation1}=    Evaluate    ${attenuation1} + 5
-    ELSE
-        Log To Console
-        ...    SIGNAL TOO WEAK
-        ${attenuation1}=    Evaluate    ${attenuation1} - 5
-    END
+stopFile = r"C:\Logs\STOP_QXDM.txt"
 
-    IF    ${attenuation1} < 0
-        ${attenuation1}=    Set Variable    0
-    END
+if os.path.exists(stopFile):
 
-    Log To Console
-    ...    NEW CH1 = ${attenuation1}
-END
+    os.remove(stopFile)
+
+    print("Old STOP_QXDM.txt Deleted")
+
+# ---------------------------------------------------
+# QXDM PYTHON PATH
+# ---------------------------------------------------
+
+sys.path.append(r"C:\Program Files\Qualcomm\QXDM5\Support\python")
+
+import QxdmAutomationClient
+import QxdmAutomationService.ttypes
+
+# ---------------------------------------------------
+# CREATE QXDM CLIENT
+# ---------------------------------------------------
+
+print("Creating QXDM Automation Client")
+
+client = QxdmAutomationClient.QxdmAutomationClient(
+    "QXDMLogger"
+)
+
+manager = client.getQxdmAutomationManager()
+
+# ---------------------------------------------------
+# INITIALIZE SERVICE
+# ---------------------------------------------------
+
+print("Initializing Service")
+
+init = manager.InitializeService()
+
+if init == False:
+
+    print("Initialization Failed")
+
+    exit()
+
+print("Initialization Success")
+
+# ---------------------------------------------------
+# SHOW QXDM WINDOW
+# ---------------------------------------------------
+
+manager.SetVisible(True)
+
+# ---------------------------------------------------
+# LOAD DMC FILE
+# ---------------------------------------------------
+
+dmcFile = r"C:\Logs\LTE_working_Subash.dmc"
+
+if os.path.exists(dmcFile):
+
+    ret = manager.LoadConfig(dmcFile)
+
+    print("LoadConfig Returned:", ret)
+
+else:
+
+    print("DMC File Not Found")
+
+    exit()
+
+# ---------------------------------------------------
+# DEVICE INFO
+# ---------------------------------------------------
+
+deviceInfo = QxdmAutomationService.ttypes.ConnectDeviceInfo(
+    281474976710656,
+    281496451547136
+)
+
+# ---------------------------------------------------
+# CONNECT DEVICE
+# ---------------------------------------------------
+
+print("Connecting Device")
+
+ret = manager.ConnectToDevice(deviceInfo)
+
+print("Connect Result:", ret)
+
+if ret == False:
+
+    print("Device Connection Failed")
+
+    exit()
+
+print("QXDM Logging Started")
+
+# ---------------------------------------------------
+# WAIT FOR STOP TRIGGER
+# ---------------------------------------------------
+
+print("Waiting For Stop Trigger...")
+
+while not os.path.exists(stopFile):
+
+    print("QXDM Logging Running...")
+
+    time.sleep(5)
+
+# ---------------------------------------------------
+# STOP DETECTED
+# ---------------------------------------------------
+
+print("Stop Trigger Detected")
+
+# ---------------------------------------------------
+# CREATE HDF FILE NAME
+# ---------------------------------------------------
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+hdfFile = rf"C:\Logs\nas_logging_{timestamp}.hdf"
+
+# ---------------------------------------------------
+# SAVE HDF
+# ---------------------------------------------------
+
+print("Saving HDF")
+
+ret = manager.SaveItemStore(hdfFile)
+
+print("SaveItemStore Returned:", ret)
+
+# ---------------------------------------------------
+# DISCONNECT DEVICE
+# ---------------------------------------------------
+
+print("Disconnecting Device")
+
+manager.DisconnectFromDevice()
+
+# ---------------------------------------------------
+# CLOSE QXDM
+# ---------------------------------------------------
+
+print("Closing QXDM")
+
+manager.Close()
+
+# ---------------------------------------------------
+# CREATE SUCCESS FILE
+# ---------------------------------------------------
+
+with open(r"C:\Logs\QXDM_STOPPED.txt", "w") as f:
+
+    f.write("QXDM Logging Stopped Successfully")
+
+# ---------------------------------------------------
+# COMPLETED
+# ---------------------------------------------------
+
+print("Completed Successfully")
