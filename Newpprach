@@ -1,73 +1,92 @@
 import os
 import sys
-import time
+import subprocess
 
 # ---------------------------------------------------
-# QXDM PATH
+# QXDM PYTHON PATH
 # ---------------------------------------------------
 sys.path.append(r"C:\Program Files\Qualcomm\QXDM5\Support\python")
 
 import QxdmAutomationClient
 
 # ---------------------------------------------------
-# FILE PATH
+# INPUT HDF FILE
 # ---------------------------------------------------
-hdfFile = r"C:\Logs\your_file.hdf"   # <-- change this
+hdfFile = r"C:\Logs\your_file.hdf"   # 👉 change this
 
 if not os.path.exists(hdfFile):
-    print("HDF file not found!")
+    print("❌ HDF file not found")
     exit()
 
 # ---------------------------------------------------
 # CREATE CLIENT
 # ---------------------------------------------------
+print("Creating QXDM Client...")
 client = QxdmAutomationClient.QxdmAutomationClient("QXDMReader")
 manager = client.getQxdmAutomationManager()
 
 # ---------------------------------------------------
-# INIT
+# INITIALIZE
 # ---------------------------------------------------
-manager.InitializeService()
+print("Initializing service...")
+if not manager.InitializeService():
+    print("❌ Initialization failed")
+    exit()
+
 manager.SetVisible(True)
 
 # ---------------------------------------------------
-# LOAD HDF FILE ✅ (KEY STEP)
+# LOAD HDF FILE ✅
 # ---------------------------------------------------
 print("Loading HDF file...")
 ret = manager.LoadItemStore(hdfFile)
 
-print("LoadItemStore:", ret)
-
 if not ret:
-    print("Failed to load HDF")
+    print("❌ Failed to load HDF")
     exit()
 
-# ---------------------------------------------------
-# EXPORT DECODED LOGS
-# ---------------------------------------------------
-txtFile = hdfFile.replace(".hdf", "_decoded.txt")
-
-print("Exporting decoded logs...")
-manager.ExportView(txtFile)
-
-print("Decoded file:", txtFile)
+print("✅ HDF Loaded")
 
 # ---------------------------------------------------
-# FILTER THROUGHPUT LOGS
+# EXPORT LOGS USING GetViewItems ✅ (NO ExportView)
 # ---------------------------------------------------
-import subprocess
+decodedFile = hdfFile.replace(".hdf", "_decoded.txt")
 
-filteredFile = txtFile.replace(".txt", "_throughput.txt")
+print("Exporting logs...")
 
-cmd = f'findstr /i "NR5GMAC ENL2DL tput Kbps avgPHY" "{txtFile}" > "{filteredFile}"'
+with open(decodedFile, "w", encoding="utf-8") as f:
 
+    index = 0
+    step = 1000
+
+    while True:
+        logs = manager.GetViewItems(index, index + step)
+
+        if not logs:
+            break
+
+        for item in logs:
+            f.write(str(item) + "\n")
+
+        index += step
+
+print("✅ Logs exported:", decodedFile)
+
+# ---------------------------------------------------
+# FILTER THROUGHPUT LOGS ✅
+# ---------------------------------------------------
+filteredFile = decodedFile.replace(".txt", "_throughput.txt")
+
+print("Filtering throughput logs...")
+
+cmd = f'findstr /i "NR5GMAC ENL2DL tput Kbps avgPHY" "{decodedFile}" > "{filteredFile}"'
 subprocess.call(cmd, shell=True)
 
-print("✅ Throughput logs:", filteredFile)
+print("✅ Throughput logs saved:", filteredFile)
 
 # ---------------------------------------------------
-# DONE
+# CLOSE QXDM
 # ---------------------------------------------------
 manager.Close()
 
-print("✅ Completed")
+print("✅ COMPLETED SUCCESSFULLY")
