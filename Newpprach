@@ -1,170 +1,40 @@
+import subprocess
 import os
-import sys
-import time
-from datetime import datetime
 
 # ---------------------------------------------------
-# DELETE OLD STOP FILE
+# INPUT HDF FILE
 # ---------------------------------------------------
-
-stopFile = r"C:\Logs\STOP_QXDM.txt"
-
-if os.path.exists(stopFile):
-
-    os.remove(stopFile)
-
-    print("Old STOP_QXDM.txt Deleted")
+hdf_file = r"C:\Logs\your_file.hdf"   # <-- change this
 
 # ---------------------------------------------------
-# QXDM PYTHON PATH
+# OUTPUT TXT FILE
 # ---------------------------------------------------
-
-sys.path.append(r"C:\Program Files\Qualcomm\QXDM5\Support\python")
-
-import QxdmAutomationClient
-import QxdmAutomationService.ttypes
+txt_file = hdf_file.replace(".hdf", "_throughput.txt")
 
 # ---------------------------------------------------
-# CREATE QXDM CLIENT
+# CHECK FILE EXISTS
 # ---------------------------------------------------
-
-print("Creating QXDM Automation Client")
-
-client = QxdmAutomationClient.QxdmAutomationClient(
-    "QXDMLogger"
-)
-
-manager = client.getQxdmAutomationManager()
-
-# ---------------------------------------------------
-# INITIALIZE SERVICE
-# ---------------------------------------------------
-
-print("Initializing Service")
-
-init = manager.InitializeService()
-
-if init == False:
-
-    print("Initialization Failed")
-
+if not os.path.exists(hdf_file):
+    print("HDF file not found!")
     exit()
 
-print("Initialization Success")
+print("Processing file:", hdf_file)
 
 # ---------------------------------------------------
-# SHOW QXDM WINDOW
+# THROUGHPUT FILTER KEYWORDS
 # ---------------------------------------------------
-
-manager.SetVisible(True)
-
-# ---------------------------------------------------
-# LOAD DMC FILE
-# ---------------------------------------------------
-
-dmcFile = r"C:\Logs\LTE_working_Subash.dmc"
-
-if os.path.exists(dmcFile):
-
-    ret = manager.LoadConfig(dmcFile)
-
-    print("LoadConfig Returned:", ret)
-
-else:
-
-    print("DMC File Not Found")
-
-    exit()
+keywords = "throughput rate DL UL tx_rate rx_rate Transport_Block MAC"
 
 # ---------------------------------------------------
-# DEVICE INFO
+# COMMAND
 # ---------------------------------------------------
-
-deviceInfo = QxdmAutomationService.ttypes.ConnectDeviceInfo(
-    281474976710656,
-    281496451547136
-)
+cmd = f'h5dump "{hdf_file}" | findstr /i "{keywords}" > "{txt_file}"'
 
 # ---------------------------------------------------
-# CONNECT DEVICE
+# EXECUTE
 # ---------------------------------------------------
+print("Extracting throughput logs...")
+subprocess.call(cmd, shell=True)
 
-print("Connecting Device")
-
-ret = manager.ConnectToDevice(deviceInfo)
-
-print("Connect Result:", ret)
-
-if ret == False:
-
-    print("Device Connection Failed")
-
-    exit()
-
-print("QXDM Logging Started")
-
-# ---------------------------------------------------
-# WAIT FOR STOP TRIGGER
-# ---------------------------------------------------
-
-print("Waiting For Stop Trigger...")
-
-while not os.path.exists(stopFile):
-
-    print("QXDM Logging Running...")
-
-    time.sleep(5)
-
-# ---------------------------------------------------
-# STOP DETECTED
-# ---------------------------------------------------
-
-print("Stop Trigger Detected")
-
-# ---------------------------------------------------
-# CREATE HDF FILE NAME
-# ---------------------------------------------------
-
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-hdfFile = rf"C:\Logs\nas_logging_{timestamp}.hdf"
-
-# ---------------------------------------------------
-# SAVE HDF
-# ---------------------------------------------------
-
-print("Saving HDF")
-
-ret = manager.SaveItemStore(hdfFile)
-
-print("SaveItemStore Returned:", ret)
-
-# ---------------------------------------------------
-# DISCONNECT DEVICE
-# ---------------------------------------------------
-
-print("Disconnecting Device")
-
-manager.DisconnectFromDevice()
-
-# ---------------------------------------------------
-# CLOSE QXDM
-# ---------------------------------------------------
-
-print("Closing QXDM")
-
-manager.Close()
-
-# ---------------------------------------------------
-# CREATE SUCCESS FILE
-# ---------------------------------------------------
-
-with open(r"C:\Logs\QXDM_STOPPED.txt", "w") as f:
-
-    f.write("QXDM Logging Stopped Successfully")
-
-# ---------------------------------------------------
-# COMPLETED
-# ---------------------------------------------------
-
-print("Completed Successfully")
+print("✅ Done!")
+print("Output file:", txt_file)
