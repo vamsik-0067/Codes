@@ -1,92 +1,174 @@
 import os
 import sys
-import subprocess
+import re
 
 # ---------------------------------------------------
-# QXDM PYTHON PATH
+# QUTS PATH
 # ---------------------------------------------------
-sys.path.append(r"C:\Program Files\Qualcomm\QXDM5\Support\python")
+sys.path.append(r"C:\Program Files (x86)\Qualcomm\QUTS\Support\python")
 
-import QxdmAutomationClient
+import QutsClient
+import Common.ttypes
+import LogSession.ttypes
 
 # ---------------------------------------------------
 # INPUT HDF FILE
 # ---------------------------------------------------
-hdfFile = r"C:\Logs\your_file.hdf"   # 👉 change this
+HDF_FILE = r"C:\Logs\nas_logging_20260527_130300.hdf"
 
-if not os.path.exists(hdfFile):
-    print("❌ HDF file not found")
-    exit()
+# OUTPUT FILE
+OUTPUT_FILE = r"C:\Logs\throughput_only.txt"
 
-# ---------------------------------------------------
-# CREATE CLIENT
-# ---------------------------------------------------
-print("Creating QXDM Client...")
-client = QxdmAutomationClient.QxdmAutomationClient("QXDMReader")
-manager = client.getQxdmAutomationManager()
 
 # ---------------------------------------------------
-# INITIALIZE
+# MAIN FUNCTION
 # ---------------------------------------------------
-print("Initializing service...")
-if not manager.InitializeService():
-    print("❌ Initialization failed")
-    exit()
+def process_files(log_session):
 
-manager.SetVisible(True)
+    data_packet_filter = LogSession.ttypes.DataPacketFilter()
 
-# ---------------------------------------------------
-# LOAD HDF FILE ✅
-# ---------------------------------------------------
-print("Loading HDF file...")
-ret = manager.LoadItemStore(hdfFile)
+    # ---------------------------------------------------
+    # GET DEVICE
+    # ---------------------------------------------------
+    device_list = log_session.getDeviceList()
+    if not device_list:
+        print("❌ No device found")
+        return
 
-if not ret:
-    print("❌ Failed to load HDF")
-    exit()
+    # ---------------------------------------------------
+    # GET PROTOCOL HANDLE (DIAG)
+    # ---------------------------------------------------
+    protocols = log_session.getProtocolList(device_list[0].deviceHandle)
 
-print("✅ HDF Loaded")
-
-# ---------------------------------------------------
-# EXPORT LOGS USING GetViewItems ✅ (NO ExportView)
-# ---------------------------------------------------
-decodedFile = hdfFile.replace(".hdf", "_decoded.txt")
-
-print("Exporting logs...")
-
-with open(decodedFile, "w", encoding="utf-8") as f:
-
-    index = 0
-    step = 1000
-
-    while True:
-        logs = manager.GetViewItems(index, index + step)
-
-        if not logs:
+    for proto in protocols:
+        if proto.protocolType == Common.ttypes.ProtocolType.PROT_DIAG:
+            data_packet_filter.protocolHandleList = [proto.protocolHandle]
+            print("✅ DIAG protocol selected")
             break
 
-        for item in logs:
-            f.write(str(item) + "\n")
+    # ---------------------------------------------------
+    # FILTER (VERY IMPORTANT ✅)
+    # ---------------------------------------------------
+    diag_filter = Common.ttypes.DiagPacketFilter()
 
-        index += step
+    log_filters = [
+        Common.ttypes.DiagIdFilterItem(regexFilter="NR5GMAC"),
+        Common.ttypes.DiagIdFilterItem(regexFilter="ENL2DL"),
+        Common.ttypes.DiagIdFilterItem(regexFilter="ENL2UL"),
+        Common.ttypes.DiagIdFilterItem(regexFilter="tput"),
+        Common.ttypes.DiagIdFilterItem(regexFilter="Kbps"),
+        Common.ttypes.DiagIdFilterItem(regexFilter="avgPHY")
+    ]
 
-print("✅ Logs exported:", decodedFile)
+    diag_filter.idOrNameMask = {
+        Common.ttypes.DiagPacketType.LOG_PACKET: log_filters
+    }
+
+    data_packet_filter.diagFilter = diag_filter
+
+    # ---------------------------------------------------
+    # RETURN CONFIG
+    # ---------------------------------------------------
+    ret_cfg = Common.ttypes.DiagReturnConfig()
+    ret_cfg.flags = (
+        Common.ttypes.DiagReturnFlags.PACKET_NAME |
+        Common.ttypes.DiagReturnFlags.TIME_STAMP_STRING |
+        Common.ttypes.DiagReturnFlags.PARSED_TEXT
+    )
+
+    packet_cfg = LogSession.ttypes.PacketReturnConfig()
+    packet_cfg.diagConfig = ret_cfg
+
+    # ---------------------------------------------------
+    # CREATE VIEW
+    # ---------------------------------------------------
+    log_session.createDataView("data", data_packet_filter, packet_cfg)
+
+    # ---------------------------------------------------
+    # GET DATA RANGE
+    # ---------------------------------------------------
+    packet_range = LogSession.ttypes.PacketRange()
+    packet_range.beginIndex = 0
+    packet_range.endIndex = log_session.getDataPacketCount(
+        data_packet_filter.protocolHandleList[0]
+    )
+
+    print("Total packets:", packet_range.endIndex)
+
+    data_packets = log_session.getDataViewItems("data", packet_range)
+
+    print("Filtered packets:", len(data_packets))
+
+    # ---------------------------------------------------
+    # EXTRACT THROUGHPUT ✅
+    # ---------------------------------------------------
+    with open(OUTPUT_FILE, "w") as f:
+
+        for pkt in data_packets:
+
+            if pkt.diagPacket is None:
+                continue
+
+            text = str(pkt.diagPacket.parsedText)
+
+            # ---------------------------------------------------
+            # FILTER ONLY THROUGHPUT LINES
+            # ---------------------------------------------------
+            if ("NR5GMAC" in text or "ENL2DL" in text or "ENL2UL" in text):
+
+                # DL throughput
+                dl = re.search(r'DL.*avgPHY\.Kbps:\s*(\d+)', text)
+
+                # UL throughput
+                ul = re.search(r'UL.*avgPHY\.Kbps:\s*(\d+)', text)
+
+                # tput PHY
+                tput = re.search(r'tput\.kbps:\[.*?PHY:\s*(\d+)', text)
+
+                # ---------------------------------------------------
+                # WRITE CLEAN OUTPUT
+                # ---------------------------------------------------
+                if dl:
+                    line = f"{pkt.diagPacket.timeStampString} | DL Throughput = {dl.group(1)} Kbps"
+                    print(line)
+                    f.write(line + "\n")
+
+                elif ul:
+                    line = f"{pkt.diagPacket.timeStampString} | UL Throughput = {ul.group(1)} Kbps"
+                    print(line)
+                    f.write(line + "\n")
+
+                elif tput:
+                    line = f"{pkt.diagPacket.timeStampString} | PHY Throughput = {tput.group(1)} Kbps"
+                    print(line)
+                    f.write(line + "\n")
+
+    print("✅ Throughput extraction completed →", OUTPUT_FILE)
+
+    log_session.removeDataView("data")
+
 
 # ---------------------------------------------------
-# FILTER THROUGHPUT LOGS ✅
+# EXECUTION
 # ---------------------------------------------------
-filteredFile = decodedFile.replace(".txt", "_throughput.txt")
+def main():
 
-print("Filtering throughput logs...")
+    if not os.path.exists(HDF_FILE):
+        print("❌ File not found")
+        return
 
-cmd = f'findstr /i "NR5GMAC ENL2DL tput Kbps avgPHY" "{decodedFile}" > "{filteredFile}"'
-subprocess.call(cmd, shell=True)
+    print("Opening HDF...")
 
-print("✅ Throughput logs saved:", filteredFile)
+    quts_client = QutsClient.QutsClient("ThroughputExtractor")
 
-# ---------------------------------------------------
-# CLOSE QXDM
-# ---------------------------------------------------
-manager.Close()
+    log_session = quts_client.openLogSession([HDF_FILE])
 
-print("✅ COMPLETED SUCCESSFULLY")
+    if log_session == 0:
+        print("❌ Failed to open session")
+        return
+
+    process_files(log_session)
+
+
+if __name__ == "__main__":
+    main()
